@@ -3,11 +3,11 @@ import asyncio
 from openai import OpenAI
 from config import settings
 from services.openai.prompts import Prompts
-from services.scraper import Scraper
 
 class OpenAIClient:
-    def __init__(self):
+    def __init__(self, scraper_cls, api_key=None):
         self.client = OpenAI(api_key=settings.open_ai_api_key)
+        self.scraper_cls = scraper_cls
 
     def get_client(self):
         return self.client
@@ -28,7 +28,7 @@ class OpenAIClient:
 
     async def get_all_details(self, url):
         result = "Landing Page: \n"
-        result_dict = await Scraper(url).get_content()
+        result_dict = await self.scraper_cls(url).get_content()
         links = await self.get_links(result_dict)
         
         print("Found links:", links)
@@ -40,7 +40,7 @@ class OpenAIClient:
         
         ## Asynchronously scrape all links
         tasks = [
-            Scraper(link["url"]).get_content()
+            self.scraper_cls(link["url"]).get_content()
             for link in links_json["links"]
         ]
         pages = await asyncio.gather(*tasks, return_exceptions=True)
@@ -53,7 +53,7 @@ class OpenAIClient:
         
         ## Add the links to the result
         result += "\n\nLinks: \n"
-        result += "{links}"
+        result += links
         return result
 
     async def create_brochure(self, company_name, url, language, brochure_type):
