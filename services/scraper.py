@@ -3,7 +3,12 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
 headers = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36"
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+  "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+  "Referer": "https://www.google.com/",
+  "Connection": "keep-alive",
+  "Upgrade-Insecure-Requests": "1"
 }
 
 
@@ -30,10 +35,10 @@ class Scraper:
     async with httpx.AsyncClient() as client:
 
       try:
-        response = await client.get(self.url, headers=headers, timeout=10)
+        response = await client.get(self.url, headers=headers, timeout=10, follow_redirects=True)
         response.raise_for_status()
         return response.text
-      except httpx.RequestError as e:
+      except (httpx.RequestError, httpx.HTTPStatusError) as e:
         raise Exception(f"Error fetching {self.url}: {e}")
 
 
