@@ -32,6 +32,7 @@ class Prompts:
         brochure_system_prompt += "If you want add social media or external links, so you should add external links in HTML. If you can't don't do it. \n"
         brochure_system_prompt += "Omits your comments and HTML markdown, only give me the HTML and CSS.\n"
         brochure_system_prompt += "You must consider that the brochure will be a PDF document, so external links not must fail.\n"
+        brochure_system_prompt += "Important: The brochure must be in only one page when it is printed, so don't use more than one page. Keep the brochure short and concise. Limit: 800-1000 words approximately.\n"
 
         return brochure_system_prompt
 
@@ -44,7 +45,8 @@ class Prompts:
         brochure_system_prompt += "If you want add social media or external links, so you should add external links in HTML. If you can't don't do it. \n"
         brochure_system_prompt += "Omits your comments and HTML markdown, only give me the HTML and CSS.\n"
         brochure_system_prompt += "You must consider that the brochure will be a PDF document, so external links not must fail.\n"
-
+        brochure_system_prompt += "Important: The brochure must be in only one page when it is printed, so don't use more than one page. Keep the brochure short and concise. Limit: 800-1000 words approximately.\n"
+        
         return brochure_system_prompt
 
     def get_brochure_user_prompt(self, company_name, details, language: str) -> str:
