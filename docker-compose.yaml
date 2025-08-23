@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - brochuresai-network
+  
+  redis:
+    image: redis:8.2-alpine
+    container_name: brochuresai-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - brochuresai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data:
+
+networks:
+  brochuresai-network:
