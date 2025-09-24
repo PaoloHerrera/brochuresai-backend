@@ -1,0 +1,65 @@
+# VCS and CI
+.git
+.gitignore
+.gitattributes
+.github/
+
+# IDE / OS
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Python caches and tooling
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# App outputs / temp
+logs/
+tmp/
+temp/
+cache/
+.cache/
+
+# Build artifacts
+build/
+dist/
+
+# Env and secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Node / frontend (if any appears later)
+node_modules/
+.pnpm-store/
+.yarn/
+.parcel-cache/
+
+# Playwright reports (if used)
+playwright-report/
+blob-report/
+ms-playwright/
+
+# Local data files that shouldn't go into images (SQLite by default)
+data/*.db
+*.sqlite
+*.sqlite3
+
+# Generated PDFs/HTML artifacts if stored locally
+*.pdf
+*.html

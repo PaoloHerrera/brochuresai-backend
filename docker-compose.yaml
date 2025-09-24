@@ -1,10 +1,15 @@
 services:
   app:
     build: .
+    volumes:
+      - ./data:/app/data
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///./data/brochuresai.db
     depends_on:
       - redis
     networks:
