@@ -9,7 +9,7 @@ import ipaddress
 
 class OpenAIClient:
     def __init__(self, scraper_cls):
-        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.client = OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
         self.scraper_cls = scraper_cls
         self.prompts = Prompts()
 
@@ -39,6 +39,9 @@ class OpenAIClient:
         return (default_code, default_prompt_lang, default_accept_lang)
 
     async def get_links(self, content):
+        # Validación perezosa: si no hay API key, devolver error claro
+        if not self.client:
+            return "Error: missing OpenAI API key"
         loop = asyncio.get_running_loop()
         try:
             response = await loop.run_in_executor(
@@ -113,6 +116,10 @@ class OpenAIClient:
         result_dict = await self.scraper_cls(url, accept_language=accept_language).get_content()
         links = await self.get_links(result_dict)
         
+        # Si get_links falló por falta de API key u otro error, propagarlo
+        if isinstance(links, str) and links.startswith("Error:"):
+            return links
+        
         print("Found links:", links)
 
         try:
@@ -184,6 +191,9 @@ class OpenAIClient:
         return result
 
     async def create_brochure(self, company_name, url, language, brochure_type):
+        # Validación perezosa: si no hay API key, devolver error claro
+        if not self.client:
+            return "Error: missing OpenAI API key"
         # Normaliza idioma para prompts y Accept-Language
         _, prompt_language, accept_language = self._normalize_language(language)
 
