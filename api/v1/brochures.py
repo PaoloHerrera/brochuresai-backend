@@ -3,6 +3,7 @@ from api.v1.schemas import CreateBrochureRequest, DownloadBrochureRequest
 from services.openai.openai_client import OpenAIClient
 from services.scraper import Scraper
 from fastapi.responses import Response
+import re
 
 from services.pdf.renderer import render_pdf
 from services.brochures.cache import (
@@ -23,6 +24,29 @@ from .deps import (
 from services.pdf.html_utils import sanitize_html_for_pdf
 
 router = APIRouter()
+
+
+def _sanitize_filename_component(name: str, default: str = "brochure", max_length: int = 100) -> str:
+    if not name:
+        return default
+    # Eliminar CRLF e invisibles de control
+    s = str(name).replace("\r", "").replace("\n", "").strip()
+    # Quitar caracteres problemáticos para nombres de archivo y cabeceras
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', s)
+    # Colapsar espacios a guiones bajos
+    s = re.sub(r"\s+", "_", s)
+    # Evitar puntos/espacios al inicio/fin
+    s = s.strip(". ")
+    # Evitar nombres reservados de Windows
+    reserved = {"CON","PRN","AUX","NUL"} | {f"COM{i}" for i in range(1,10)} | {f"LPT{i}" for i in range(1,10)}
+    if s.upper() in reserved:
+        s = f"file_{s}"
+    # Limitar longitud
+    if len(s) == 0:
+        s = default
+    if len(s) > max_length:
+        s = s[:max_length]
+    return s
 
 @router.post("/create_brochure")
 async def create_brochure(request: Request, body: CreateBrochureRequest):
@@ -118,6 +142,7 @@ async def download_brochure_pdf(request: Request, body: DownloadBrochureRequest)
         pass
 
     headers = {
-        "Content-Disposition": f"attachment; filename={company_name}_brochure.pdf",
+        # Quoted-string y nombre seguro
+        "Content-Disposition": f"attachment; filename=\"{_sanitize_filename_component(company_name)}_brochure.pdf\"",
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
