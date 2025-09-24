@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field
+from typing import Optional
 
 """
 This settings module uses Pydantic to manage configuration settings.
@@ -7,8 +8,8 @@ It loads environment variables from a .env file and provides a structured way to
 """
 
 class Settings(BaseSettings):
-  openai_api_key: str = Field(alias='OPENAI_API_KEY')
-  max_brochures_per_user: int = Field(alias='MAX_BROCHURES_PER_USER')
+  openai_api_key: Optional[str] = Field(default=None, alias='OPENAI_API_KEY')
+  max_brochures_per_user: int = Field(default=3, alias='MAX_BROCHURES_PER_USER')
   # Rate limiting
   rate_limit_max_per_minute: int = Field(default=10, alias='RATE_LIMIT_MAX_PER_MINUTE')
   rate_limit_window_seconds: int = Field(default=60, alias='RATE_LIMIT_WINDOW_SECONDS')
