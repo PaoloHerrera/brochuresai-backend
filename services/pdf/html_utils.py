@@ -62,7 +62,7 @@ def inline_print_css(html: str) -> str:
 
 
 def sanitize_html_for_pdf(html: str) -> str:
-    """Elimina recursos externos y reglas problemáticas para impresión offline."""
+    """Refuerza sanitización: elimina recursos externos problemáticos y tags/atributos peligrosos."""
     try:
         html = ensure_html_document(html)
         # Eliminar hojas de estilo externas y @import
@@ -70,7 +70,35 @@ def sanitize_html_for_pdf(html: str) -> str:
         html = re.sub(r"@import\s+url\([^\)]+\)\s*;?", "", html, flags=re.I)
         # Eliminar bloques @font-face
         html = re.sub(r"@font-face\s*\{[^}]*\}", "", html, flags=re.I | re.S)
-        # Neutralizar url(...) en CSS inline
+
+        # Parsear DOM y eliminar tags peligrosos y atributos on*
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Tags peligrosos para PDF offline
+        for tag in soup(["script", "iframe", "object", "embed", "form"]):
+            tag.decompose()
+
+        # Atributos peligrosos y esquemas inseguros
+        for el in soup.find_all(True):
+            # Eliminar atributos tipo on*
+            for attr in list(el.attrs.keys()):
+                if attr.lower().startswith("on"):
+                    del el.attrs[attr]
+            # Neutralizar href/src con javascript:, data:, file:, vbscript:
+            for key in ("href", "src"):
+                if key in el.attrs:
+                    val = el.attrs[key]
+                    if isinstance(val, list):
+                        val = val[0] if val else ""
+                    if isinstance(val, str):
+                        low = val.strip().lower()
+                        if low.startswith(("javascript:", "data:", "file:", "vbscript:")):
+                            del el.attrs[key]
+
+        # Volver a string
+        html = str(soup)
+
+        # Neutralizar url(...) en CSS inline por seguridad offline
         html = re.sub(r"url\([^)]+\)", "none", html, flags=re.I)
         return html
     except Exception:
