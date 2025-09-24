@@ -48,9 +48,16 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
             raise HTTPException(status_code=429, detail="Brochure quota exceeded for this user")
 
         brochure = await OpenAIClient(Scraper).create_brochure(company_name, url, language, brochure_type)
-        if brochure.startswith("Error:"):
-            raise HTTPException(status_code=400, detail=brochure)
-
+        if isinstance(brochure, str) and brochure.startswith("Error:"):
+            msg_lower = brochure.lower()
+            if "missing openai api key" in msg_lower:
+                # Falta de configuración: 503 Service Unavailable
+                raise HTTPException(status_code=503, detail="Service unavailable")
+            else:
+                # Error del proveedor o de procesamiento: 502 Bad Gateway
+                raise HTTPException(status_code=502, detail="Upstream provider error")
+        # Si no hay error, continuar flujo normal
+        
         # Cache brochure original en Redis por 1 hora
         cache_key = gen_cache_key_service(user_ip, body.model_dump(mode="json"))
         store_brochure(cache_key, brochure, body.model_dump(mode="json"), user_ip, ttl_seconds=3600)
