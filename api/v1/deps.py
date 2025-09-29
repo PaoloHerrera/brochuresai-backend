@@ -2,7 +2,9 @@ import os
 import sqlite3
 import uuid
 from datetime import date, datetime
+
 from fastapi import Request
+
 from config import settings
 
 # Quota configurable via env, default 3
@@ -29,7 +31,9 @@ def get_user_by_anon_id(conn: sqlite3.Connection, anon_id: str):
 
 
 def get_user_by_ip(conn: sqlite3.Connection, ip: str):
-    cur = conn.execute("SELECT * FROM users WHERE ip_address = ? ORDER BY created_at DESC LIMIT 1", (ip,))
+    cur = conn.execute(
+        "SELECT * FROM users WHERE ip_address = ? ORDER BY created_at DESC LIMIT 1", (ip,)
+    )
     return cur.fetchone()
 
 
@@ -117,6 +121,7 @@ def get_client_ip(request: Request) -> str:
             return x_real_ip.strip()
     # Fallback: IP del socket directo
     return request.client.host if request.client else "unknown"
+
 
 def set_full_language(language: str) -> str:
     if language == "en":

@@ -1,5 +1,7 @@
-from pydantic import BaseModel, HttpUrl
 from typing import Optional
+
+from pydantic import BaseModel, HttpUrl
+
 
 class CreateBrochureRequest(BaseModel):
     url: HttpUrl
@@ -8,8 +10,10 @@ class CreateBrochureRequest(BaseModel):
     company_name: Optional[str] = None
     anon_id: str
 
+
 class DownloadBrochureRequest(BaseModel):
     cache_key: str
+
 
 class IdentifyUserRequest(BaseModel):
     anon_id: Optional[str] = None

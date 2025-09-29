@@ -1,11 +1,12 @@
-import json
-import time
-from typing import Any, Dict, Optional
-from services.redis.redis_client import redis_client
-import hashlib
 import base64
 import gzip
+import hashlib
+import json
+import time
+from typing import Any, Optional
+
 from config import settings
+from services.redis.redis_client import redis_client
 
 
 def _maybe_compress(s: str) -> str:
@@ -33,7 +34,7 @@ def _maybe_decompress(s: str) -> str:
     """Detecta prefijo de compresión y devuelve el JSON en claro."""
     try:
         if isinstance(s, str) and s.startswith("cmp:gzip:"):
-            b64 = s[len("cmp:gzip:"):]
+            b64 = s[len("cmp:gzip:") :]
             raw = base64.b64decode(b64)
             return gzip.decompress(raw).decode("utf-8")
         return s
@@ -42,12 +43,18 @@ def _maybe_decompress(s: str) -> str:
         return s
 
 
-def generate_cache_key(user_ip: str, data_json: Dict[str, Any]) -> str:
+def generate_cache_key(user_ip: str, data_json: dict[str, Any]) -> str:
     content = f"{user_ip}:{json.dumps(data_json, sort_keys=True)}"
     return hashlib.sha256(content.encode()).hexdigest()
 
 
-def store_brochure(cache_key: str, brochure_html: str, data_json: Dict[str, Any], user_ip: str, ttl_seconds: int = 3600) -> None:
+def store_brochure(
+    cache_key: str,
+    brochure_html: str,
+    data_json: dict[str, Any],
+    user_ip: str,
+    ttl_seconds: int = 3600,
+) -> None:
     payload = {
         "brochure": brochure_html,
         "data": data_json,
@@ -63,7 +70,7 @@ def store_brochure(cache_key: str, brochure_html: str, data_json: Dict[str, Any]
         pass
 
 
-def get_brochure_payload(cache_key: str) -> Optional[Dict[str, Any]]:
+def get_brochure_payload(cache_key: str) -> Optional[dict[str, Any]]:
     try:
         data = redis_client.get(cache_key)
     except Exception:

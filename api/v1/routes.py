@@ -1,6 +1,7 @@
 from fastapi import APIRouter
-from api.v1.users import router as users_router
+
 from api.v1.brochures import router as brochures_router
+from api.v1.users import router as users_router
 
 # Aggregator router for v1
 router = APIRouter()

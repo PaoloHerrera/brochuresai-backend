@@ -1,11 +1,14 @@
-import json
 import asyncio
+import ipaddress
+import json
+from urllib.parse import urlparse
+
 from openai import OpenAI
+
 from config import settings
 from services.openai.prompts import Prompts
 from services.redis.redis_client import redis_client
-from urllib.parse import urlparse
-import ipaddress
+
 
 class OpenAIClient:
     def __init__(self, scraper_cls):
@@ -50,9 +53,9 @@ class OpenAIClient:
                     model="gpt-5-mini",
                     messages=[
                         {"role": "system", "content": self.prompts.get_links_system_prompt()},
-                        {"role": "user", "content": self.prompts.get_links_user_prompt(content)}
-                    ]
-                )
+                        {"role": "user", "content": self.prompts.get_links_user_prompt(content)},
+                    ],
+                ),
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -64,7 +67,9 @@ class OpenAIClient:
             host = (parsed.netloc or parsed.path or url).lower()
             if host.startswith("www."):
                 host = host[4:]
-            lang_token = (accept_language or settings.scraper_accept_language or "").replace(",", "_")
+            lang_token = (accept_language or settings.scraper_accept_language or "").replace(
+                ",", "_"
+            )
             return f"company:details:{host}:al:{lang_token}"
         except Exception:
             return f"company:details:{url}:al:{accept_language or 'default'}"
@@ -115,19 +120,19 @@ class OpenAIClient:
         result = "Landing Page: \n"
         result_dict = await self.scraper_cls(url, accept_language=accept_language).get_content()
         links = await self.get_links(result_dict)
-        
+
         # Si get_links falló por falta de API key u otro error, propagarlo
         if isinstance(links, str) and links.startswith("Error:"):
             return links
-        
+
         print("Found links:", links)
 
         try:
             links_json = json.loads(links)
-        except: 
+        except json.JSONDecodeError:
             print("Invalid JSON from model", links)
             return "Error: could not parse links from model"
-        
+
         print("Links JSON: ", links_json)
 
         # Filtrar y limitar enlaces propuestos por el modelo
@@ -181,13 +186,13 @@ class OpenAIClient:
                 print(f"Error scraping {link['url']}: {page}")
                 continue
             result += f"\n\n{link['type']}\n{page.get('text', '')}"
-        
+
         # Cachear los detalles compilados por 1h
         try:
             redis_client.set(cache_key, result, ex=3600)
         except Exception:
             pass
-        
+
         return result
 
     async def create_brochure(self, company_name, url, language, brochure_type):
@@ -217,9 +222,14 @@ class OpenAIClient:
                     model="gpt-5-mini",
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": self.prompts.get_brochure_user_prompt(company_name, details, prompt_language)},
+                        {
+                            "role": "user",
+                            "content": self.prompts.get_brochure_user_prompt(
+                                company_name, details, prompt_language
+                            ),
+                        },
                     ],
-                )
+                ),
             )
             return response.choices[0].message.content
         except Exception as e:
