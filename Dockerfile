@@ -1,4 +1,4 @@
-FROM python:3.12.5-slim
+FROM python:3.13.7-slim
 
 # Optimizar runtime Python y pip
 ENV PYTHONDONTWRITEBYTECODE=1 \
