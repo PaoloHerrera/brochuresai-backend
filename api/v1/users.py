@@ -1,16 +1,18 @@
 from fastapi import APIRouter, HTTPException, Request
+
 from .deps import (
     MAX_BROCHURES_PER_USER,
-    get_conn,
     ensure_user,
-    reset_brochures_if_new_day,
     get_client_ip,
+    get_conn,
+    reset_brochures_if_new_day,
 )
 
 router = APIRouter()
 
+
 @router.get("/users/get_remaining/")
-async def get_remaining_brochures(request: Request, anon_id: str = ''):
+async def get_remaining_brochures(request: Request, anon_id: str = ""):
     try:
         user_ip = get_client_ip(request)
         user = ensure_user(user_ip, anon_id if anon_id else None)
@@ -30,4 +32,4 @@ async def get_remaining_brochures(request: Request, anon_id: str = ''):
             "brochures_remaining": remaining,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

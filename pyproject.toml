@@ -1,0 +1,20 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["data", "migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["api", "services"]
+skip = ["data", "migrations"]

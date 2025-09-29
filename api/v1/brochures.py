@@ -1,44 +1,53 @@
-from fastapi import APIRouter, HTTPException, Request
-from api.v1.schemas import CreateBrochureRequest, DownloadBrochureRequest
-from services.openai.openai_client import OpenAIClient
-from services.scraper import Scraper
-from fastapi.responses import Response
 import re
 
-from services.pdf.renderer import render_pdf
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
+
+from api.v1.schemas import CreateBrochureRequest, DownloadBrochureRequest
 from services.brochures.cache import (
     generate_cache_key as gen_cache_key_service,
-    store_brochure,
-    get_brochure_payload,
 )
+from services.brochures.cache import (
+    get_brochure_payload,
+    store_brochure,
+)
+from services.openai.openai_client import OpenAIClient
+from services.pdf.html_utils import sanitize_html_for_pdf
+from services.pdf.renderer import render_pdf
+from services.scraper import Scraper
 
 from .deps import (
     MAX_BROCHURES_PER_USER,
     ensure_user,
-    increment_brochures,
     get_client_ip,
     get_conn,
+    increment_brochures,
     reset_brochures_if_new_day,
     set_full_language,
 )
-from services.pdf.html_utils import sanitize_html_for_pdf
 
 router = APIRouter()
 
 
-def _sanitize_filename_component(name: str, default: str = "brochure", max_length: int = 100) -> str:
+def _sanitize_filename_component(
+    name: str, default: str = "brochure", max_length: int = 100
+) -> str:
     if not name:
         return default
     # Eliminar CRLF e invisibles de control
     s = str(name).replace("\r", "").replace("\n", "").strip()
     # Quitar caracteres problemáticos para nombres de archivo y cabeceras
-    s = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', s)
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "", s)
     # Colapsar espacios a guiones bajos
     s = re.sub(r"\s+", "_", s)
     # Evitar puntos/espacios al inicio/fin
     s = s.strip(". ")
     # Evitar nombres reservados de Windows
-    reserved = {"CON","PRN","AUX","NUL"} | {f"COM{i}" for i in range(1,10)} | {f"LPT{i}" for i in range(1,10)}
+    reserved = (
+        {"CON", "PRN", "AUX", "NUL"}
+        | {f"COM{i}" for i in range(1, 10)}
+        | {f"LPT{i}" for i in range(1, 10)}
+    )
     if s.upper() in reserved:
         s = f"file_{s}"
     # Limitar longitud
@@ -47,6 +56,7 @@ def _sanitize_filename_component(name: str, default: str = "brochure", max_lengt
     if len(s) > max_length:
         s = s[:max_length]
     return s
+
 
 @router.post("/create_brochure")
 async def create_brochure(request: Request, body: CreateBrochureRequest):
@@ -71,7 +81,9 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
         if used >= MAX_BROCHURES_PER_USER:
             raise HTTPException(status_code=429, detail="Brochure quota exceeded for this user")
 
-        brochure = await OpenAIClient(Scraper).create_brochure(company_name, url, language, brochure_type)
+        brochure = await OpenAIClient(Scraper).create_brochure(
+            company_name, url, language, brochure_type
+        )
         if isinstance(brochure, str) and brochure.startswith("Error:"):
             msg_lower = brochure.lower()
             if "missing openai api key" in msg_lower:
@@ -81,7 +93,7 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
                 # Error del proveedor o de procesamiento: 502 Bad Gateway
                 raise HTTPException(status_code=502, detail="Upstream provider error")
         # Si no hay error, continuar flujo normal
-        
+
         # Cache brochure original en Redis por 1 hora
         cache_key = gen_cache_key_service(user_ip, body.model_dump(mode="json"))
         store_brochure(cache_key, brochure, body.model_dump(mode="json"), user_ip, ttl_seconds=3600)
@@ -105,7 +117,7 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
     except Exception as e:
         # No exponer detalles internos en 500
         print(f"[create_brochure] Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/download_brochure_pdf")
@@ -134,7 +146,7 @@ async def download_brochure_pdf(request: Request, body: DownloadBrochureRequest)
         pdf_bytes = await render_pdf(request.app, html)
     except Exception:
         # No exponer detalles internos
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
     try:
         print(f"[PDF] Bytes length: {len(pdf_bytes) if pdf_bytes else 0}")
@@ -143,6 +155,6 @@ async def download_brochure_pdf(request: Request, body: DownloadBrochureRequest)
 
     headers = {
         # Quoted-string y nombre seguro
-        "Content-Disposition": f"attachment; filename=\"{_sanitize_filename_component(company_name)}_brochure.pdf\"",
+        "Content-Disposition": f'attachment; filename="{_sanitize_filename_component(company_name)}_brochure.pdf"',
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)

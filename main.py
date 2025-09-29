@@ -1,13 +1,14 @@
+import asyncio
+import time
+
 from fastapi import FastAPI, Request, Response
-from api.v1.routes import router as api_router
 from fastapi.middleware.cors import CORSMiddleware
 from playwright.async_api import async_playwright
 
-from services.redis.redis_client import redis_client
-from config import settings
 from api.v1.deps import get_client_ip
-import time
-import asyncio
+from api.v1.routes import router as api_router
+from config import settings
+from services.redis.redis_client import redis_client
 
 app = FastAPI(title="BrochuresAI API", version="1.0.0")
 
@@ -31,6 +32,7 @@ app.add_middleware(
 
 # Endpoints protegidos por rate limiting (creación y descarga de PDF)
 PROTECTED_PATHS = {"/api/v1/create_brochure", "/api/v1/download_brochure_pdf"}
+
 
 # --- Rate limiting middleware (fixed window) con TTL atómico ---
 @app.middleware("http")
@@ -97,10 +99,13 @@ async def startup_redis_ping():
     except Exception as e:
         print(f"INFO: [Redis] Not available: {e}")
 
+
 @app.on_event("startup")
 async def startup_playwright():
     app.state.playwright = await async_playwright().start()
-    app.state.browser = await app.state.playwright.chromium.launch(headless=True, args=["--no-sandbox"]) 
+    app.state.browser = await app.state.playwright.chromium.launch(
+        headless=True, args=["--no-sandbox"]
+    )
     # Semáforo global para limitar concurrencia de generación de PDFs
     try:
         max_conc = max(1, int(settings.playwright_max_concurrency))
@@ -121,4 +126,3 @@ async def shutdown_playwright():
             pass
     if getattr(app.state, "playwright", None):
         await app.state.playwright.stop()
-

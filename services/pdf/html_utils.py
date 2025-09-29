@@ -1,10 +1,10 @@
 import re
 from html import escape as html_escape
+
 from bs4 import BeautifulSoup
 
 # CSS mínimo para impresión en PDF (A4 con margen) — sencillo y estable
-PRINT_CSS = (
-    """
+PRINT_CSS = """
     @page { size: A4; margin: 1cm; }
 
     @media print {
@@ -22,7 +22,6 @@ PRINT_CSS = (
       .page-break { break-before: auto !important; page-break-before: auto !important; break-after: auto !important; page-break-after: auto !important; }
     }
     """
-)
 
 
 def ensure_html_document(html: str) -> str:
@@ -33,8 +32,10 @@ def ensure_html_document(html: str) -> str:
         # Envolver contenido plano en documento mínimo
         return (
             "<!doctype html><html><head><meta charset='utf-8'><title>Brochure</title>"
-            "<style>body{font-family:Arial,Helvetica,sans-serif;line-height:1.5;font-size:14px;padding:24px;}"
-            "h1,h2,h3{margin:0.6em 0;} p{margin:0.4em 0;} pre{white-space:pre-wrap;}</style>"
+            "<style>"
+            "body{font-family:Arial,Helvetica,sans-serif;line-height:1.5;font-size:14px;padding:24px;}"
+            "h1,h2,h3{margin:0.6em 0;} p{margin:0.4em 0;} pre{white-space:pre-wrap;}"
+            "</style>"
             "</head><body><pre>" + html_escape(html) + "</pre></body></html>"
         )
     except Exception:
@@ -56,13 +57,28 @@ def inline_print_css(html: str) -> str:
                 count=1,
             )
         # Fallback: documento mínimo
-        return f"<!doctype html><html><head><meta charset='utf-8'><style>{PRINT_CSS}</style></head><body>{html}</body></html>"
+        return (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            f"{PRINT_CSS}"
+            "</style></head><body>"
+            f"{html}"
+            "</body></html>"
+        )
     except Exception:
-        return f"<!doctype html><html><head><meta charset='utf-8'><style>{PRINT_CSS}</style></head><body>{html}</body></html>"
+        return (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            f"{PRINT_CSS}"
+            "</style></head><body>"
+            f"{html}"
+            "</body></html>"
+        )
 
 
 def sanitize_html_for_pdf(html: str) -> str:
-    """Refuerza sanitización: elimina recursos externos problemáticos y tags/atributos peligrosos."""
+    """
+    Refuerza sanitización: elimina recursos externos problemáticos
+    y tags/atributos peligrosos.
+    """
     try:
         html = ensure_html_document(html)
         # Eliminar hojas de estilo externas y @import
@@ -103,6 +119,7 @@ def sanitize_html_for_pdf(html: str) -> str:
         return html
     except Exception:
         return html
+
 
 __all__ = [
     "PRINT_CSS",

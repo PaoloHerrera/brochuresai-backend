@@ -1,6 +1,7 @@
 from config import settings
 from services.pdf.html_utils import inline_print_css
 
+
 async def render_pdf(app, html: str) -> bytes:
     """Renderiza HTML a PDF usando el navegador Playwright global de la app."""
     browser = app.state.browser
@@ -28,13 +29,16 @@ async def render_pdf(app, html: str) -> bytes:
 
         try:
             import asyncio as _asyncio
+
             pdf_coro = page.pdf(
                 format="A4",
                 print_background=True,
                 scale=1.0,
                 margin={"top": "1cm", "bottom": "1cm", "left": "1cm", "right": "1cm"},
             )
-            pdf_bytes = await _asyncio.wait_for(pdf_coro, timeout=(max(1, int(timeout_ms)) / 1000.0))
+            pdf_bytes = await _asyncio.wait_for(
+                pdf_coro, timeout=(max(1, int(timeout_ms)) / 1000.0)
+            )
             return pdf_bytes
         finally:
             try:
