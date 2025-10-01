@@ -62,8 +62,9 @@ def _sanitize_filename_component(
 @router.post("/create_brochure")
 async def create_brochure(request: Request, body: CreateBrochureRequest):
     import time
+
     start_time = time.time()
-    
+
     try:
         url = str(body.url)
         company_name = str(body.company_name or "Company")
@@ -93,20 +94,24 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
                 language=language,
                 success=False,
                 processing_time_ms=processing_time,
-                error_type="quota_exceeded"
+                error_type="quota_exceeded",
             )
             raise HTTPException(status_code=429, detail="Brochure quota exceeded for this user")
 
         brochure = await OpenAIClient(Scraper).create_brochure(
             company_name, url, language, brochure_type
         )
-        
+
         processing_time = int((time.time() - start_time) * 1000)
-        
+
         if isinstance(brochure, str) and brochure.startswith("Error:"):
             msg_lower = brochure.lower()
-            error_type = "openai_api_key_missing" if "missing openai api key" in msg_lower else "upstream_error"
-            
+            error_type = (
+                "openai_api_key_missing"
+                if "missing openai api key" in msg_lower
+                else "upstream_error"
+            )
+
             # Analytics para errores
             store_brochure_analytics(
                 anon_id=user["anon_id"],
@@ -116,18 +121,18 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
                 language=language,
                 success=False,
                 processing_time_ms=processing_time,
-                error_type=error_type
+                error_type=error_type,
             )
-            
+
             if "missing openai api key" in msg_lower:
                 # Falta de configuración: 503 Service Unavailable
                 raise HTTPException(status_code=503, detail="Service unavailable")
             else:
                 # Error del proveedor o de procesamiento: 502 Bad Gateway
                 raise HTTPException(status_code=502, detail="Upstream provider error")
-        
+
         # Si no hay error, continuar flujo normal
-        
+
         # Analytics para éxito
         store_brochure_analytics(
             anon_id=user["anon_id"],
@@ -136,7 +141,7 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
             brochure_type=brochure_type,
             language=language,
             success=True,
-            processing_time_ms=processing_time
+            processing_time_ms=processing_time,
         )
 
         # Cache brochure original en Redis por 1 hora
@@ -164,12 +169,16 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
         try:
             processing_time = int((time.time() - start_time) * 1000)
             # Intentar obtener datos básicos para analytics
-            url = getattr(body, 'url', 'unknown') if 'body' in locals() else 'unknown'
-            company_name = getattr(body, 'company_name', None) if 'body' in locals() else None
-            brochure_type = getattr(body, 'brochure_type', 'professional') if 'body' in locals() else 'professional'
-            language = getattr(body, 'language', 'en') if 'body' in locals() else 'en'
-            anon_id = user.get("anon_id") if 'user' in locals() and user else 'unknown'
-            
+            url = getattr(body, "url", "unknown") if "body" in locals() else "unknown"
+            company_name = getattr(body, "company_name", None) if "body" in locals() else None
+            brochure_type = (
+                getattr(body, "brochure_type", "professional")
+                if "body" in locals()
+                else "professional"
+            )
+            language = getattr(body, "language", "en") if "body" in locals() else "en"
+            anon_id = user.get("anon_id") if "user" in locals() and user else "unknown"
+
             store_brochure_analytics(
                 anon_id=anon_id,
                 url=str(url),
@@ -178,12 +187,12 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
                 language=str(language),
                 success=False,
                 processing_time_ms=processing_time,
-                error_type="internal_error"
+                error_type="internal_error",
             )
         except Exception:
             # Si analytics falla, no hacer nada más
             pass
-        
+
         # No exponer detalles internos en 500
         print(f"[create_brochure] Error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error") from e

@@ -143,7 +143,7 @@ def store_brochure_analytics(
 ):
     """
     Guarda analytics de creación de brochures de manera limpia y truncada.
-    
+
     Args:
         anon_id: ID anónimo del usuario
         url: URL original (se extraerá solo el dominio)
@@ -154,9 +154,9 @@ def store_brochure_analytics(
         processing_time_ms: Tiempo de procesamiento en milisegundos
         error_type: Tipo de error si success=False
     """
-    from urllib.parse import urlparse
     import re
-    
+    from urllib.parse import urlparse
+
     conn = get_conn()
     try:
         # Extraer dominio limpio de la URL
@@ -168,22 +168,22 @@ def store_brochure_analytics(
                 domain = domain[4:]
         except Exception:
             domain = "unknown"
-        
+
         # Limpiar y truncar nombre de empresa
         clean_company_name = None
         company_name_length = 0
         if company_name:
             # Remover caracteres de control y normalizar espacios
-            clean_name = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', company_name.strip())
-            clean_name = re.sub(r'\s+', ' ', clean_name)
-            
+            clean_name = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", company_name.strip())
+            clean_name = re.sub(r"\s+", " ", clean_name)
+
             # Truncar a 100 caracteres
             clean_company_name = clean_name[:100] if clean_name else None
             company_name_length = len(company_name)
-        
+
         # Truncar error_type si existe
         clean_error_type = error_type[:50] if error_type else None
-        
+
         # Insertar en BD
         conn.execute(
             """
