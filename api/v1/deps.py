@@ -129,3 +129,84 @@ def set_full_language(language: str) -> str:
     if language == "es":
         return "Spanish"
     return "English"
+
+
+def store_brochure_analytics(
+    anon_id: str,
+    url: str,
+    company_name: str | None,
+    brochure_type: str,
+    language: str,
+    success: bool,
+    processing_time_ms: int | None = None,
+    error_type: str | None = None,
+):
+    """
+    Guarda analytics de creación de brochures de manera limpia y truncada.
+
+    Args:
+        anon_id: ID anónimo del usuario
+        url: URL original (se extraerá solo el dominio)
+        company_name: Nombre de empresa (se truncará y limpiará)
+        brochure_type: Tipo de brochure (professional, funny, etc.)
+        language: Idioma del brochure
+        success: Si la generación fue exitosa
+        processing_time_ms: Tiempo de procesamiento en milisegundos
+        error_type: Tipo de error si success=False
+    """
+    import re
+    from urllib.parse import urlparse
+
+    conn = get_conn()
+    try:
+        # Extraer dominio limpio de la URL
+        try:
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc.lower()
+            # Remover www. para normalizar
+            if domain.startswith("www."):
+                domain = domain[4:]
+        except Exception:
+            domain = "unknown"
+
+        # Limpiar y truncar nombre de empresa
+        clean_company_name = None
+        company_name_length = 0
+        if company_name:
+            # Remover caracteres de control y normalizar espacios
+            clean_name = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", company_name.strip())
+            clean_name = re.sub(r"\s+", " ", clean_name)
+
+            # Truncar a 100 caracteres
+            clean_company_name = clean_name[:100] if clean_name else None
+            company_name_length = len(company_name)
+
+        # Truncar error_type si existe
+        clean_error_type = error_type[:50] if error_type else None
+
+        # Insertar en BD
+        conn.execute(
+            """
+            INSERT INTO brochure_analytics 
+            (anon_id, url_domain, company_name, company_name_length, brochure_type, 
+             language, success, processing_time_ms, error_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                anon_id,
+                domain,
+                clean_company_name,
+                company_name_length,
+                brochure_type,
+                language,
+                success,
+                processing_time_ms,
+                clean_error_type,
+            ),
+        )
+        conn.commit()
+    except Exception as e:
+        # No fallar si analytics falla, solo loggear
+        print(f"[Analytics] Error storing brochure analytics: {e}")
+    finally:
+        conn.close()
