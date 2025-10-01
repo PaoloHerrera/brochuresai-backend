@@ -41,11 +41,11 @@ def test_strip_leading_trailing_dots_and_spaces():
 
 
 def test_crlf_and_control_chars_removed():
-    name = "acme\r\n\x00\x1F brochure"
+    name = "acme\r\n\x00\x1f brochure"
     out = _sanitize_filename_component(name)
     # Control chars eliminados, CRLF removidos
     assert "\r" not in out and "\n" not in out
-    for ch in ["\x00", "\x1F"]:
+    for ch in ["\x00", "\x1f"]:
         assert ch not in out
 
 
