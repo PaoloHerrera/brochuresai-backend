@@ -1,7 +1,7 @@
 from typing import Optional
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 """
 This settings module uses Pydantic to manage configuration settings.
@@ -10,6 +10,10 @@ It loads environment variables from a .env file and provides a structured way to
 
 
 class Settings(BaseSettings):
+    # App environment flags
+    dev_mode: bool = Field(default=True, alias="DEV_MODE")
+    file_logging: bool = Field(default=False, alias="FILE_LOGGING")
+
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
     max_brochures_per_user: int = Field(default=3, alias="MAX_BROCHURES_PER_USER")
     # Rate limiting
@@ -28,8 +32,11 @@ class Settings(BaseSettings):
     cache_compression_algo: str = Field(default="gzip", alias="CACHE_COMPRESSION_ALGO")
     cache_compress_min_bytes: int = Field(default=10240, alias="CACHE_COMPRESS_MIN_BYTES")
 
-    class Config:
-        env_file = ".env"
+    # Scraper/logging verbosity flag
+    scraper_log_verbose: bool = Field(default=False, alias="SCRAPER_LOG_VERBOSE")
+
+    # Pydantic v2 config dict: read .env and ignore unknown extras
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
