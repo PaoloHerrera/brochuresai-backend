@@ -6,8 +6,87 @@ from urllib.parse import urlparse
 from openai import OpenAI
 
 from config import settings
+from services.common.config import (
+    DETAILS_MAX_CHARS,
+    OPENAI_DEFAULT_MODEL,
+    SCRAPER_LOG_VERBOSE,
+    SCRAPER_MAX_CONCURRENCY,
+)
+from services.common.social import SOCIAL_TYPES, classify_social_type
+from services.logging.dev_logger import get_logger
 from services.openai.prompts import Prompts
 from services.redis.redis_client import redis_client
+
+# Modelo por defecto y límites centralizados en services.common.config
+
+
+def _classify_social_type(domain: str) -> str:
+    # Wrapper para usar el helper compartido y mantener compatibilidad interna
+    return classify_social_type(domain)
+
+
+def _build_combined_links(info_urls: list[str], social_urls: list[str]) -> list[dict]:
+    combined: list[dict] = [{"type": "info", "url": u} for u in info_urls]
+    for u in social_urls:
+        parsed = urlparse(u.lower())
+        domain = parsed.netloc
+        link_type = _classify_social_type(domain)
+        combined.append({"type": link_type, "url": u})
+    return combined
+
+
+# Se eliminan límites máximos; el control se hace con concurrencia y presupuesto
+
+
+def _build_social_block(social_links: list[dict]) -> str:
+    if not social_links:
+        return ""
+    lines = ["Social Links:"]
+    for s in social_links:
+        lines.append(f"- {s['type']}: {s['url']}")
+    return "\n".join(lines)
+
+
+def _load_details_cache(cache_key: str):
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            try:
+                parsed = json.loads(cached)
+                if isinstance(parsed, dict) and "details" in parsed:
+                    return parsed
+            except Exception:
+                return {"details": cached, "social_links": []}
+    except Exception:
+        pass
+    return None
+
+
+def _cache_details_payload(cache_key: str, details: str, social_links: list[dict]) -> None:
+    try:
+        payload = json.dumps({"details": details, "social_links": social_links})
+        redis_client.set(cache_key, payload, ex=3600)
+    except Exception:
+        pass
+
+
+def _log_links_preview(social_items: list[dict], info_items: list[dict], logger) -> None:
+    try:
+        info_preview = [i["url"] for i in info_items][:5]
+        ellipsis = " ..." if len(info_items) > 5 else ""
+        logger.debug(
+            "Info links to scrape (%d): %s%s",
+            len(info_items),
+            info_preview,
+            ellipsis,
+        )
+        logger.debug(
+            "Social links to include (%d): %s",
+            len(social_items),
+            [s["url"] for s in social_items],
+        )
+    except Exception as e:
+        logger.debug("Failed to log debug link lists: %s", e)
 
 
 class OpenAIClient:
@@ -15,9 +94,27 @@ class OpenAIClient:
         self.client = OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
         self.scraper_cls = scraper_cls
         self.prompts = Prompts()
+        self.logger = get_logger(__name__)
 
     def get_client(self):
         return self.client
+
+    async def _run_chat_completion(self, messages: list[dict], model: str = OPENAI_DEFAULT_MODEL):
+        # Validación centralizada de API key
+        if not self.client:
+            return "Error: missing OpenAI API key"
+        loop = asyncio.get_running_loop()
+        try:
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                ),
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error: {str(e)}"
 
     def _normalize_language(self, language: str):
         s = (language or "").strip().lower()
@@ -42,24 +139,11 @@ class OpenAIClient:
         return (default_code, default_prompt_lang, default_accept_lang)
 
     async def get_links(self, content):
-        # Validación perezosa: si no hay API key, devolver error claro
-        if not self.client:
-            return "Error: missing OpenAI API key"
-        loop = asyncio.get_running_loop()
-        try:
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.client.chat.completions.create(
-                    model="gpt-5-mini",
-                    messages=[
-                        {"role": "system", "content": self.prompts.get_links_system_prompt()},
-                        {"role": "user", "content": self.prompts.get_links_user_prompt(content)},
-                    ],
-                ),
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"Error: {str(e)}"
+        messages = [
+            {"role": "system", "content": self.prompts.get_links_system_prompt()},
+            {"role": "user", "content": self.prompts.get_links_user_prompt(content)},
+        ]
+        return await self._run_chat_completion(messages)
 
     def _details_cache_key(self, url: str, accept_language: str | None) -> str:
         try:
@@ -107,93 +191,65 @@ class OpenAIClient:
         return False
 
     async def get_all_details(self, url, accept_language: str | None = None):
-        # 1) Intentar obtener de Redis (TTL 1h) – clave incluye idioma
         cache_key = self._details_cache_key(url, accept_language)
-        try:
-            cached_details = redis_client.get(cache_key)
-        except Exception:
-            cached_details = None
-        if cached_details:
-            return cached_details
+        cached = _load_details_cache(cache_key)
+        if cached:
+            return cached
 
-        # 2) Scrape + decisión de enlaces y ensamblado de detalles
-        result = "Landing Page: \n"
+        result_text = "Landing Page: \n"
         result_dict = await self.scraper_cls(url, accept_language=accept_language).get_content()
-        links = await self.get_links(result_dict)
 
-        # Si get_links falló por falta de API key u otro error, propagarlo
-        if isinstance(links, str) and links.startswith("Error:"):
-            return links
+        # Usar enlaces filtrados por el scraper (sin límites máximos)
+        info_urls = result_dict.get("info_links", [])
+        social_urls = result_dict.get("social_links", [])
 
-        print("Found links:", links)
+        # Construir estructura que el LLM espera usando helper (solo clasificación, sin recorte)
+        combined_links = _build_combined_links(info_urls, social_urls)
 
-        try:
-            links_json = json.loads(links)
-        except json.JSONDecodeError:
-            print("Invalid JSON from model", links)
-            return "Error: could not parse links from model"
+        # Separar por tipo sin aplicar límites
+        social_items = [link for link in combined_links if link["type"] in SOCIAL_TYPES]
+        info_items = [link for link in combined_links if link["type"] == "info"]
 
-        print("Links JSON: ", links_json)
+        # DEBUG: Enlaces que se van a scrapear y sociales que se enviarán al LLM
+        if SCRAPER_LOG_VERBOSE:
+            _log_links_preview(social_items, info_items, self.logger)
 
-        # Filtrar y limitar enlaces propuestos por el modelo
-        try:
-            base = urlparse(url)
-            base_host = (base.hostname or "").lower()
-        except Exception:
-            base_host = ""
+        # Scrape ONLY informational links; do NOT scrape social media URLs
+        # Control de concurrencia: limitar número de scrapes simultáneos
+        sem = asyncio.Semaphore(max(1, SCRAPER_MAX_CONCURRENCY))
 
-        MAX_LINKS = 8
-        safe_links = []
-        seen = set()
-        for item in links_json.get("links", []):
-            try:
-                link_url = str(item.get("url", ""))
-            except Exception:
-                continue
-            if not link_url or not self._is_http_url(link_url):
-                continue
-            parsed = urlparse(link_url)
-            host = (parsed.hostname or "").lower()
-            # Bloquear hosts privados/localhost
-            try:
-                # si es IP literal
-                ip = ipaddress.ip_address(host)
-                if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
-                    continue
-            except ValueError:
-                lowered = host
-                if lowered in {"localhost"} or lowered.endswith(".local"):
-                    continue
-            # Restringir al mismo host base (tolerando www)
-            if not self._same_host(host, base_host):
-                continue
-            if link_url in seen:
-                continue
-            seen.add(link_url)
-            safe_links.append(item)
-            if len(safe_links) >= MAX_LINKS:
-                break
+        async def _bounded_get_content(item_url: str):
+            async with sem:
+                return await self.scraper_cls(
+                    item_url, accept_language=accept_language
+                ).get_content()
 
-        # Asynchronously scrape filtered links con el mismo Accept-Language
-        tasks = [
-            self.scraper_cls(link["url"], accept_language=accept_language).get_content()
-            for link in safe_links
-        ]
-        pages = await asyncio.gather(*tasks, return_exceptions=True)
+        info_tasks = [_bounded_get_content(item["url"]) for item in info_items]
+        pages = await asyncio.gather(*info_tasks, return_exceptions=True)
 
-        for link, page in zip(safe_links, pages):
+        # Presupuesto total de texto para evitar payloads excesivos
+        budget = max(1, DETAILS_MAX_CHARS)
+        for item, page in zip(info_items, pages):
             if isinstance(page, Exception):
-                print(f"Error scraping {link['url']}: {page}")
+                self.logger.warning("Error scraping %s: %s", item["url"], page)
                 continue
-            result += f"\n\n{link['type']}\n{page.get('text', '')}"
+            chunk = f"\n\n{item['type']}\n{page.get('text', '')}"
+            remaining = budget - len(result_text)
+            if remaining <= 0:
+                break
+            if len(chunk) > remaining:
+                result_text += chunk[:remaining]
+                break
+            else:
+                result_text += chunk
 
-        # Cachear los detalles compilados por 1h
-        try:
-            redis_client.set(cache_key, result, ex=3600)
-        except Exception:
-            pass
+        # No incluir los sociales en el texto de detalles; devolverlos por separado
+        social_links = [{"type": s["type"], "url": s["url"]} for s in social_items]
 
-        return result
+        # Cachear los detalles compilados y sociales por 1h usando helper
+        _cache_details_payload(cache_key, result_text, social_links)
+
+        return {"details": result_text, "social_links": social_links}
 
     async def create_brochure(self, company_name, url, language, brochure_type):
         # Validación perezosa: si no hay API key, devolver error claro
@@ -203,9 +259,22 @@ class OpenAIClient:
         _, prompt_language, accept_language = self._normalize_language(language)
 
         # Obtener detalles (scraping) usando Accept-Language normalizado
-        details = await self.get_all_details(url, accept_language=accept_language)
-        if details.startswith("Error:"):
-            return details
+        details_payload = await self.get_all_details(url, accept_language=accept_language)
+        # Backward compatibility: si viniera un string
+        if isinstance(details_payload, str):
+            if details_payload.startswith("Error:"):
+                return details_payload
+            details_text = details_payload
+            social_links = []
+        else:
+            details_text = details_payload.get("details", "")
+            social_links = details_payload.get("social_links", [])
+
+        # Agregar la URL principal al contexto para el LLM
+        details_with_url = f"Main website URL: {url}\n\n{details_text}"
+
+        # Construir bloque de sociales independiente para el LLM
+        social_block = _build_social_block(social_links)
 
         # Construir prompt de sistema según el tipo de brochure
         if brochure_type == "funny":
@@ -213,24 +282,26 @@ class OpenAIClient:
         else:
             system_prompt = self.prompts.brochure_system_prompt_professional(prompt_language)
 
-        # Llamada a OpenAI de manera asíncrona con manejo de errores
-        loop = asyncio.get_running_loop()
-        try:
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.client.chat.completions.create(
-                    model="gpt-5-mini",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {
-                            "role": "user",
-                            "content": self.prompts.get_brochure_user_prompt(
-                                company_name, details, prompt_language
-                            ),
-                        },
-                    ],
+        # DEBUG: Vista previa de la sección de sociales justo antes de enviar al LLM
+        if SCRAPER_LOG_VERBOSE:
+            try:
+                if social_block:
+                    self.logger.debug("Social links block built; sending to LLM.")
+                    _lines = social_block.splitlines()
+                    _preview = "\n".join(_lines[:10])
+                    self.logger.debug("Social links preview:\n%s", _preview)
+                else:
+                    self.logger.debug("No social links block; sending without socials.")
+            except Exception as e:
+                self.logger.debug("Failed to preview social links section: %s", e)
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": self.prompts.get_brochure_user_prompt(
+                    company_name, details_with_url, social_block, prompt_language
                 ),
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"Error: {str(e)}"
+            },
+        ]
+        return await self._run_chat_completion(messages)
