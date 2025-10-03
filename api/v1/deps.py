@@ -6,9 +6,11 @@ from datetime import date, datetime
 from fastapi import Request
 
 from config import settings
+from services.logging.dev_logger import get_logger
 
 # Quota configurable via env, default 3
 MAX_BROCHURES_PER_USER = int(settings.max_brochures_per_user)
+logger = get_logger(__name__)
 
 
 def _db_path_from_env() -> str:
@@ -207,6 +209,6 @@ def store_brochure_analytics(
         conn.commit()
     except Exception as e:
         # No fallar si analytics falla, solo loggear
-        print(f"[Analytics] Error storing brochure analytics: {e}")
+        logger.warning("[Analytics] Error storing brochure analytics: %s", e)
     finally:
         conn.close()
