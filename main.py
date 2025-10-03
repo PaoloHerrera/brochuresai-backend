@@ -8,9 +8,11 @@ from playwright.async_api import async_playwright
 from api.v1.deps import get_client_ip
 from api.v1.routes import router as api_router
 from config import settings
+from services.logging.dev_logger import get_logger
 from services.redis.redis_client import redis_client
 
 app = FastAPI(title="BrochuresAI API", version="1.0.0")
+logger = get_logger(__name__)
 
 # Subrouters are mounted inside api.v1.routes (aggregator)
 app.include_router(api_router, prefix="/api/v1")
@@ -93,11 +95,11 @@ async def startup_redis_ping():
         # Ejecutar ping en un hilo para no bloquear el event loop
         ok = await asyncio.get_running_loop().run_in_executor(None, redis_client.ping)
         if ok:
-            print("INFO: [Redis] Connected OK")
+            logger.info("[Redis] Connected OK")
         else:
-            print("INFO: [Redis] Ping returned False")
+            logger.warning("[Redis] Ping returned False")
     except Exception as e:
-        print(f"INFO: [Redis] Not available: {e}")
+        logger.warning("[Redis] Not available: %s", e)
 
 
 @app.on_event("startup")
@@ -121,7 +123,7 @@ async def shutdown_playwright():
             await app.state.browser.close()
     except Exception as e:
         try:
-            print(f"Error closing Playwright: {e}")
+            logger.warning("Error closing Playwright: %s", e)
         except Exception:
             pass
     if getattr(app.state, "playwright", None):
