@@ -1,46 +1,230 @@
-import ipaddress
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
-from config import settings
+from services.common.config import (
+    SCRAPER_DEFAULT_TIMEOUT,
+    SCRAPER_LOG_VERBOSE,
+    get_base_headers,
+)
+from services.common.link_utils import (
+    filter_social_media_links,
+    is_http_url,
+    is_irrelevant_link,
+    is_private_ip,
+    normalize_url,
+)
+from services.common.social import is_social_host
+from services.logging.dev_logger import get_logger
 
-BASE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/117.0.0.0 Safari/537.36"
-    ),
-    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9," "image/webp,*/*;q=0.8"),
-    "Accept-Language": settings.scraper_accept_language,
-    "Referer": "https://www.google.com/",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
+# Headers base ahora se construyen vía helper compartido en services.common.config
+
+logger = get_logger(__name__)
+
+
+def _is_social_host(host: str) -> bool:
+    """Proxy a helper compartido para determinar si un host es social."""
+    return is_social_host(host)
 
 
 # --- Utilidades anti-SSRF y restricción de dominios ---
 def _is_private_ip(host: str) -> bool:
-    try:
-        # Resolver si es IPv4 literal
-        ip = ipaddress.ip_address(host)
-        return ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local
-    except ValueError:
-        # No es IP literal; puede ser hostname.
-        # No resolvemos DNS para mantenerlo simple: bloquear hostnames especiales.
-        lowered = host.lower()
-        if lowered in {"localhost"} or lowered.endswith(".local"):
-            return True
-        return False
+    return is_private_ip(host)
 
 
 def _is_http_url(url: str) -> bool:
+    return is_http_url(url)
+
+
+def _is_irrelevant_link(url: str, base_domain: str) -> bool:
+    return is_irrelevant_link(url, base_domain)
+
+
+def _normalize_url(url: str) -> str:
+    return normalize_url(url)
+
+
+def _score_link(url: str, base_domain: str) -> int:
+    """Heurística simple para priorizar enlaces informativos relevantes.
+
+    Preferimos:
+    - Enlaces del mismo dominio/subdominio
+    - Rutas con palabras clave típicas (about, careers, contact, etc.)
+    - Menor profundidad de ruta
+    Penalizamos:
+    - Query string y fragmentos
+    """
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = (parsed.path or "").lower()
+
+        score = 0
+
+        # Mismo dominio o subdominio
+        if host == base_domain:
+            score += 3
+        elif host.endswith("." + base_domain) or base_domain.endswith("." + host):
+            score += 2
+
+        # Palabras clave comunes de páginas relevantes
+        keywords = (
+            "about",
+            "company",
+            "team",
+            "careers",
+            "jobs",
+            "contact",
+            "services",
+            "solutions",
+            "products",
+            "clients",
+            "portfolio",
+            "press",
+            "news",
+            "blog",
+        )
+        if any(k in path for k in keywords):
+            score += 2
+
+        # Menor profundidad de ruta → mayor puntuación
+        segments = [seg for seg in path.split("/") if seg]
+        score += max(0, 3 - len(segments))
+
+        # Penalizar query y fragmento
+        if parsed.query:
+            score -= 1
+        if parsed.fragment:
+            score -= 1
+
+        return score
+    except Exception:
+        return 0
+
+
+def _filter_social_media_links(
+    links: list[str], company_domain: str
+) -> tuple[list[str], list[str]]:
+    """
+    Separa enlaces en dos categorías: información relevante y redes sociales específicas.
+
+    Args:
+        links: Lista de enlaces extraídos
+        company_domain: Dominio base de la empresa
+
+    Returns:
+        Tupla con (enlaces_info, enlaces_redes_sociales)
+    """
+    return filter_social_media_links(links, company_domain)
+
+
+def _extract_title(soup: BeautifulSoup) -> str:
+    """Extrae el título de la página desde <title> o encabezados H1/H2."""
+    try:
+        if soup.title and soup.title.string:
+            return soup.title.string.strip()
+        for tag in ("h1", "h2"):
+            el = soup.find(tag)
+            if el:
+                txt = el.get_text(strip=True)
+                if txt:
+                    return txt
+        return ""
+    except Exception:
+        return ""
+
+
+def _clean_soup(soup: BeautifulSoup) -> None:
+    """Limpia el DOM eliminando elementos que no aportan al texto principal."""
+    try:
+        for tag in soup(["script", "style", "noscript", "iframe", "object", "embed"]):
+            tag.decompose()
+    except Exception:
+        # Si falla la limpieza, continuamos con el DOM original
+        pass
+
+
+def _extract_text(soup: BeautifulSoup) -> str:
+    """Extrae texto visible, normalizando espacios y saltos de línea."""
+    try:
+        raw = soup.get_text(separator="\n")
+        lines = [line.strip() for line in raw.splitlines()]
+        # Filtrar líneas vacías y colapsar espacios
+        lines = [line for line in lines if line]
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _get_base_host(url: str) -> str:
+    """Obtiene el host base (sin www) en minúsculas para comparaciones."""
     try:
         p = urlparse(url)
-        return p.scheme in ("http", "https") and bool(p.netloc)
+        host = (p.netloc or p.path or url).lower()
+        if host.startswith("www."):
+            host = host[4:]
+        return host
     except Exception:
-        return False
+        return url.lower()
+
+
+def _collect_links(
+    soup: BeautifulSoup,
+    base_url: str,
+    base_host: str,
+) -> set[str]:
+    """Recopila enlaces válidos, resolviendo relativos y aplicando filtros básicos.
+
+    - Resuelve enlaces relativos con urljoin
+    - Descarta esquemas no http/https
+    - Evita SSRF a IPs privadas/loopback
+    - Elimina enlaces irrelevantes (feeds, assets, admin, etc.)
+    - No aplica una cota superior; el control se realiza con relevancia y
+      concurrencia en etapas posteriores
+    """
+    collected: set[str] = set()
+    try:
+        for a in soup.find_all("a", href=True):
+            href = (a.get("href") or "").strip()
+            if not href:
+                continue
+
+            # Resolver relativos; mantener absolutos
+            try:
+                candidate = href if _is_http_url(href) else urljoin(base_url, href)
+            except Exception:
+                candidate = href
+
+            if not _is_http_url(candidate):
+                continue
+
+            # Filtrar hosts privados/loopback por seguridad
+            try:
+                parsed = urlparse(candidate)
+                host = parsed.hostname or ""
+                if _is_private_ip(host):
+                    continue
+            except Exception:
+                continue
+
+            # Descartar enlaces irrelevantes
+            if _is_irrelevant_link(candidate, base_host):
+                continue
+
+            collected.add(candidate)
+    except Exception:
+        # Si algo falla, devolvemos lo acumulado hasta el momento
+        pass
+
+    # Reordenar por relevancia para priorizar páginas informativas
+    try:
+        ranked = sorted(list(collected), key=lambda u: _score_link(u, base_host), reverse=True)
+        return set(ranked)
+    except Exception:
+        return set(collected)
 
 
 """
@@ -73,14 +257,15 @@ class Scraper:
         if _is_private_ip(parsed.hostname or ""):
             raise Exception(f"Blocked private/loopback host: {parsed.hostname}")
 
-        headers = dict(BASE_HEADERS)
-        if self.accept_language:
-            headers["Accept-Language"] = self.accept_language
+        headers = get_base_headers(self.accept_language)
 
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(
-                    self.url, headers=headers, timeout=10, follow_redirects=True
+                    self.url,
+                    headers=headers,
+                    timeout=SCRAPER_DEFAULT_TIMEOUT,
+                    follow_redirects=True,
                 )
                 response.raise_for_status()
                 return response.text
@@ -98,44 +283,36 @@ class Scraper:
         html = await self.fetch()
         soup = BeautifulSoup(html, "html.parser")
 
-        title = soup.title.string.strip() if soup.title and soup.title.string else "No title"
+        title = _extract_title(soup)
+        _clean_soup(soup)
+        text = _extract_text(soup)
 
-        for irrelevant in soup(["script", "style", "img", "input"]):
-            irrelevant.decompose()
+        base_host = _get_base_host(self.url)
+        links = _collect_links(soup, self.url, base_host)
 
-        if not soup.body:
-            text = "No content"
-        else:
-            text = soup.body.get_text(separator="\n").strip()
+        # Separar enlaces en información y redes sociales específicas
 
-        # Extract links (limitados y del mismo dominio registrable básico)
-        links = set()
-        try:
-            base = urlparse(self.url)
-            base_host = (base.hostname or "").lower()
-        except Exception:
-            base_host = ""
+        all_links = list(links)
+        info_links, social_links = _filter_social_media_links(all_links, base_host)
 
-        MAX_LINKS = 8
-        for link in soup.find_all("a", href=True):
-            if len(links) >= MAX_LINKS:
-                break
-            full_url = urljoin(self.url, link["href"]) if link["href"] else None
-            if not full_url or not _is_http_url(full_url):
-                continue
-            p = urlparse(full_url)
-            host = (p.hostname or "").lower()
-            # Evitar hosts privados/loopback
-            if _is_private_ip(host):
-                continue
-            # Restringir a mismo host base (con y sin www)
-            same = host == base_host
-            if base_host.startswith("www."):
-                same = same or (host == base_host[4:])
-            if host.startswith("www."):
-                same = same or (host[4:] == base_host)
-            if not same:
-                continue
-            links.add(full_url)
+        if SCRAPER_LOG_VERBOSE:
+            logger.debug("Después del filtrado:")
+            logger.debug("   • Enlaces de información: %d", len(info_links))
+            logger.debug("   • Enlaces de redes sociales: %d", len(social_links))
+            if info_links:
+                logger.debug(
+                    "   • Info links: %s%s",
+                    info_links[:5],
+                    "..." if len(info_links) > 5 else "",
+                )
+            if social_links:
+                logger.debug("   • Social links: %s", social_links)
 
-        return {"url": self.url, "title": title, "text": text, "links": list(links)}
+        return {
+            "url": self.url,
+            "title": title,
+            "text": text,
+            "info_links": info_links,
+            "social_links": social_links,
+            "all_links": all_links,
+        }
