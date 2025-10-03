@@ -11,6 +11,7 @@ from services.brochures.cache import (
     get_brochure_payload,
     store_brochure,
 )
+from services.logging.dev_logger import get_logger
 from services.openai.openai_client import OpenAIClient
 from services.pdf.html_utils import sanitize_html_for_pdf
 from services.pdf.renderer import render_pdf
@@ -28,6 +29,7 @@ from .deps import (
 )
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 def _sanitize_filename_component(
@@ -194,7 +196,7 @@ async def create_brochure(request: Request, body: CreateBrochureRequest):
             pass
 
         # No exponer detalles internos en 500
-        print(f"[create_brochure] Error: {e}")
+        logger.error("[create_brochure] Error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
@@ -215,7 +217,7 @@ async def download_brochure_pdf(request: Request, body: DownloadBrochureRequest)
     html = sanitize_html_for_pdf(brochure_html)
 
     try:
-        print(f"[PDF] HTML length: {len(html)}")
+        logger.info("[PDF] HTML length: %d", len(html))
     except Exception:
         pass
 
@@ -227,7 +229,7 @@ async def download_brochure_pdf(request: Request, body: DownloadBrochureRequest)
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
     try:
-        print(f"[PDF] Bytes length: {len(pdf_bytes) if pdf_bytes else 0}")
+        logger.info("[PDF] Bytes length: %d", len(pdf_bytes) if pdf_bytes else 0)
     except Exception:
         pass
 
