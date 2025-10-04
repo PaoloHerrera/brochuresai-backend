@@ -15,6 +15,7 @@ Variables de entorno (.env)
 - `PLAYWRIGHT_DISABLE_JS` (bool, default `true`): deshabilita JS durante render PDF para mayor estabilidad.
 - `SCRAPER_ACCEPT_LANGUAGE` (string, default `en-US,en;q=0.9`): valor para header `Accept-Language` del scraper.
 - `SCRAPER_LOG_VERBOSE` (bool, default `false`): controla verbosidad de logs en `services/scraper.py` y `services/openai/openai_client.py`.
+- `ALLOWED_ORIGINS` (CSV, default `http://localhost:5173,http://localhost:4173`): orígenes permitidos para CORS.
 - `CACHE_COMPRESS` (bool, default `false`): habilita compresión de payloads cacheados.
 - `CACHE_COMPRESSION_ALGO` (string, default `gzip`): algoritmo de compresión.
 - `CACHE_COMPRESS_MIN_BYTES` (int, default `10240`): tamaño mínimo para comprimir.
@@ -36,5 +37,6 @@ Política de enlaces
 
 Buenas prácticas
 - Producción: `DEV_MODE=false`, `FILE_LOGGING=true`, `SCRAPER_LOG_VERBOSE=false`.
+- Definir `ALLOWED_ORIGINS` con los dominios de frontend en producción, sin comodines.
 - Ajustar `PLAYWRIGHT_MAX_CONCURRENCY` y `SCRAPER_MAX_CONCURRENCY` según CPU/RAM.
 - Mantener `SCRAPER_ACCEPT_LANGUAGE` consistente con el idioma objetivo para mejorar relevancia.

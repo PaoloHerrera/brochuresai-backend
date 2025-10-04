@@ -16,9 +16,7 @@ class Settings(BaseSettings):
 
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
     max_brochures_per_user: int = Field(default=3, alias="MAX_BROCHURES_PER_USER")
-    # App environment
-    dev_mode: bool = Field(default=True, alias="DEV_MODE")
-    file_logging: bool = Field(default=False, alias="FILE_LOGGING")
+
     # Rate limiting
     rate_limit_max_per_minute: int = Field(default=10, alias="RATE_LIMIT_MAX_PER_MINUTE")
     rate_limit_window_seconds: int = Field(default=60, alias="RATE_LIMIT_WINDOW_SECONDS")
@@ -29,6 +27,10 @@ class Settings(BaseSettings):
     playwright_pdf_timeout_ms: int = Field(default=30000, alias="PLAYWRIGHT_PDF_TIMEOUT_MS")
     playwright_disable_js: bool = Field(default=True, alias="PLAYWRIGHT_DISABLE_JS")
     scraper_accept_language: str = Field(default="en-US,en;q=0.9", alias="SCRAPER_ACCEPT_LANGUAGE")
+    # CORS allowed origins (CSV). In prod, set explicit domains.
+    allowed_origins: str = Field(
+        default="http://localhost:5173,http://localhost:4173", alias="ALLOWED_ORIGINS"
+    )
 
     # Cache compression settings
     cache_compress: bool = Field(default=False, alias="CACHE_COMPRESS")

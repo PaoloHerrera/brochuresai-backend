@@ -17,11 +17,14 @@ logger = get_logger(__name__)
 # Subrouters are mounted inside api.v1.routes (aggregator)
 app.include_router(api_router, prefix="/api/v1")
 
-# Restringir orígenes permitidos (ajustar aquí según despliegue)
-origins = [
-    "http://localhost:5173",
-    "http://localhost:4173",
-]
+# Restringir orígenes permitidos controlados por entorno (ALLOWED_ORIGINS)
+try:
+    _origins_csv = getattr(settings, "allowed_origins", "")
+    origins = [o.strip() for o in _origins_csv.split(",") if o.strip()]
+    if not origins:
+        origins = ["http://localhost:5173", "http://localhost:4173"]
+except Exception:
+    origins = ["http://localhost:5173", "http://localhost:4173"]
 
 app.add_middleware(
     CORSMiddleware,
